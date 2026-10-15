@@ -17,11 +17,9 @@ st.write(
     "This application explores the relationship between gravidity, "
     "previous births, and infant birth weight."
 )
-
 DATA_PATH = Path(
-    "data/Filtered maternity Register - Filtered maternity Register.csv"
+    "data/Filtered maternity Register - Filtered maternity Register (1).csv"
 )
-
 if not DATA_PATH.exists():
     st.error(
         "Dataset not found. Please upload the maternity CSV file "
