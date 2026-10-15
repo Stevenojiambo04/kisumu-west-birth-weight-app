@@ -159,3 +159,52 @@ st.caption(
     "Academic capstone demonstration. Findings describe the available "
     "records and do not independently establish causation."
 )
+
+
+st.divider()
+
+st.header("Model Information")
+
+st.write(
+    "The following machine-learning evaluation results were obtained "
+    "during the group's capstone analysis. Live model predictions are "
+    "not currently integrated into this application."
+)
+
+st.subheader("1. Decision Tree Regression")
+
+st.write(
+    "This model estimates infant birth weight using gravidity and "
+    "the number of babies born."
+)
+
+col1, col2, col3 = st.columns(3)
+
+col1.metric("Mean Absolute Error (MAE)", "339.53 g")
+col2.metric("Root Mean Squared Error (RMSE)", "431.62 g")
+col3.metric("R² Score", "0.0621")
+
+st.caption(
+    "The R² score indicates that the model explains only a small "
+    "proportion of the variation in birth weight."
+)
+
+st.subheader("2. Logistic Regression")
+
+st.write(
+    "This model classifies infants into low birth weight "
+    "(below 2,500 g) and non-low birth weight categories."
+)
+
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric("Accuracy", "67.17%")
+col2.metric("Precision", "9.19%")
+col3.metric("Recall", "60.34%")
+col4.metric("F1 Score", "15.95%")
+
+st.caption(
+    "The low precision and F1 score indicate important limitations. "
+    "The results should not be used as a substitute for clinical "
+    "assessment."
+)
