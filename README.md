@@ -1,100 +1,87 @@
-# kisumu-west-birth-weight-app
-Streamlit deployment app for the Kisumu West gravidity, parity and infant birth weight capstone project
+The Effect of Gravidity and Parity on Birth Weight of Infants in Kisumu West Sub-County
 
-st.header("Model Information")
+Project Overview
 
-st.write(
-    "This section presents the machine-learning models evaluated "
-    "during the group capstone analysis. The results shown are from "
-    "our completed analysis; predictions are not yet integrated "
-    "into this application."
-)
+This group capstone project examines the relationship between gravidity, the number of babies previously born as recorded in the available maternity data, and infant birth weight in Kisumu West Sub-County, Kenya.
 
-st.subheader("1. Decision Tree Regression")
+The project applies data cleaning, exploratory data analysis, visualization, and machine-learning techniques to investigate patterns in the maternity records.
 
-st.write(
-    "Purpose: Estimate infant birth weight using gravidity and "
-    "the number of babies born."
-)
+Project Objectives
 
-col1, col2, col3 = st.columns(3)
+Explore the relationship between gravidity, babies born, and infant birth weight.
 
-col1.metric("MAE", "339.53 g")
-col2.metric("RMSE", "431.62 g")
-col3.metric("R² Score", "0.0621")
+Prepare and analyze maternity-register data.
 
-st.caption(
-    "The low R² score indicates that the model explains only a "
-    "small proportion of the variation in birth weight."
-)
+Develop and evaluate machine-learning models for birth-weight estimation and low-birth-weight classification.
 
-st.subheader("2. Logistic Regression")
+Present findings through an interactive web application.
 
-st.write(
-    "Purpose: Classify infants as having low birth weight "
-    "(below 2,500 g) or not."
-)
+Technologies Used
 
-col1, col2, col3, col4 = st.columns(4)
+Python
 
-col1.metric("Accuracy", "67.17%")
-col2.metric("Precision", "9.19%")
-col3.metric("Recall", "60.34%")
-col4.metric("F1 Score", "15.95%")
+Pandas
 
+Matplotlib
 
-st.divider()
-st.header("Low Birth Weight Analysis")
+Scikit-learn
 
-st.write(
-    "Low birth weight (LBW) is defined as a birth weight below "
-    "2,500 grams. This section summarises the recorded infant "
-    "weights currently available in the selected data."
-)
+Streamlit
 
-# Use positive recorded weights for this summary
-valid_weights = weights[weights > 0]
+Google Colab
 
-low_weights = valid_weights[valid_weights < 2500]
-other_weights = valid_weights[valid_weights >= 2500]
+GitHub
 
-if not valid_weights.empty:
-    total_valid = len(valid_weights)
-    lbw_count = len(low_weights)
-    other_count = len(other_weights)
+Repository Contents
 
-    lbw_percentage = lbw_count / total_valid * 100
-    other_percentage = other_count / total_valid * 100
+app.py — Streamlit application source code.
 
-    col1, col2, col3 = st.columns(3)
+requirements.txt — Python packages required by the application.
 
-    col1.metric("Valid recorded weights", f"{total_valid:,}")
-    col2.metric("Low birth weight (<2,500 g)", f"{lbw_count:,}")
-    col3.metric("Low birth weight (%)", f"{lbw_percentage:.2f}%")
+README.md — Project documentation and usage instructions.
 
-    chart_data = pd.DataFrame({
-        "Category": ["Low birth weight", "2,500 g or above"],
-        "Number of infants": [lbw_count, other_count]
-    })
+Kisumu_West_Birth_Weight_Analysis.ipynb — Analysis notebook.
 
-    fig, ax = plt.subplots()
-    ax.bar(chart_data["Category"], chart_data["Number of infants"])
-    ax.set_title("Distribution of Recorded Birth Weights")
-    ax.set_ylabel("Number of recorded infant weights")
-    ax.tick_params(axis="x", rotation=10)
+data/ — Maternity-register dataset used by the application.
 
-    st.pyplot(fig)
-    plt.close(fig)
+Machine-Learning Models
 
-    st.caption(
-        "This chart is calculated from positive recorded weights in "
-        "the current dataset. Its counts may differ from the cleaned "
-        "analysis used for the group's final model results."
-    )
-else:
-    st.warning("No positive recorded birth weights are available.")
-st.caption(
-    "The low precision and F1 score indicate that this classifier "
-    "has important limitations. These results should be interpreted "
-    "carefully, especially when considering healthcare applications."
-)
+Decision Tree Regression: Estimates infant birth weight using gravidity and the recorded number of babies born. The notebook's reported evaluation results were MAE of approximately 339.53 g, RMSE of approximately 431.62 g, and R² of approximately 0.0621.
+
+Logistic Regression: Classifies birth weight as low birth weight (below 2,500 g) or not low birth weight. The notebook's reported results were accuracy of approximately 67.17%, precision of 9.19%, recall of 60.34%, and F1 score of 15.95%.
+
+These metrics describe the evaluated notebook models. Results from the application's prediction interface may differ because the app prepares its modelling data separately.
+
+Run the Application Locally
+
+Install Python.
+
+Clone or download this repository.
+
+Open a terminal in the project folder.
+
+Install the dependencies:
+
+pip install -r requirements.txt
+
+Start the application:
+
+streamlit run app.py
+
+Open the local address displayed in the terminal.
+
+Ensure the dataset is present at the path expected by app.py.
+
+Deployed Application
+
+https://kisumu-west-birth-weight-app-xk24emclnmmrx87dosetrr.streamlit.app/
+
+Responsible Use and Limitations
+
+This project is an academic demonstration. The models have limited predictive performance and must not be used to diagnose, treat, or make clinical decisions about mothers or infants. Actual infant birth weight should be measured, and healthcare decisions must be made by qualified professionals.
+
+The findings describe patterns in the available records and do not independently establish causation. Data privacy and responsible interpretation should be maintained when handling maternity information.
+
+Academic Project
+
+Group capstone project submitted to the Tropical Institute of Community Health and Development (TICH), School of Data Science and Analytics, toward the Diploma in Data Science.
