@@ -208,3 +208,144 @@ st.caption(
     "The results should not be used as a substitute for clinical "
     "assessment."
 )
+
+st.divider()
+st.header("Birth Weight Prediction")
+
+st.write(
+    "Enter gravidity and babies born to obtain an experimental "
+    "birth-weight estimate from a Decision Tree model."
+)
+
+st.warning(
+    "Academic demonstration only. The models have limited predictive "
+    "performance and must not be used for clinical decisions."
+)
+
+# Prepare modelling data using the same predictors as the group notebook
+model_data = df[
+    ["Gravidae", "Babies born"] + weight_cols
+].copy()
+
+model_data["Gravidae"] = pd.to_numeric(
+    model_data["Gravidae"], errors="coerce"
+)
+model_data["Babies born"] = pd.to_numeric(
+    model_data["Babies born"], errors="coerce"
+)
+
+# Match the notebook's long-format birth-weight structure
+model_data = model_data.melt(
+    id_vars=["Gravidae", "Babies born"],
+    value_vars=weight_cols,
+    value_name="Birth_weight",
+    var_name="Baby_number"
+)
+
+model_data["Birth_weight"] = pd.to_numeric(
+    model_data["Birth_weight"], errors="coerce"
+)
+
+model_data = model_data.dropna(
+    subset=["Gravidae", "Babies born", "Birth_weight"]
+)
+
+# Keep plausible positive weights for this app-level demonstration
+model_data = model_data[model_data["Birth_weight"] > 0]
+
+if len(model_data) < 20:
+    st.error("There are not enough complete records to train the model.")
+else:
+    from sklearn.tree import DecisionTreeRegressor
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import train_test_split
+
+    model_data["Low_Birth_Weight"] = (
+        model_data["Birth_weight"] < 2500
+    ).astype(int)
+
+    X = model_data[["Gravidae", "Babies born"]]
+    y_weight = model_data["Birth_weight"]
+    y_low = model_data["Low_Birth_Weight"]
+
+    # Train the regression model using the notebook's tree settings
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y_weight, test_size=0.2, random_state=42
+    )
+
+    birth_weight_model = DecisionTreeRegressor(
+        max_depth=4, random_state=42
+    )
+    birth_weight_model.fit(X_train, y_train)
+
+    # Train a low-birth-weight classifier when both classes are present
+    logistic_model = None
+
+    if y_low.nunique() == 2 and y_low.value_counts().min() >= 2:
+        Xc_train, Xc_test, yc_train, yc_test = train_test_split(
+            X, y_low, test_size=0.2, random_state=42, stratify=y_low
+        )
+
+        logistic_model = LogisticRegression(
+            class_weight="balanced", random_state=42, max_iter=1000
+        )
+        logistic_model.fit(Xc_train, yc_train)
+
+    st.subheader("Enter the values")
+
+    min_gravidity = max(1, int(model_data["Gravidae"].min()))
+    max_gravidity = max(min_gravidity, int(model_data["Gravidae"].max()))
+    min_babies = max(0, int(model_data["Babies born"].min()))
+    max_babies = max(min_babies, int(model_data["Babies born"].max()))
+
+    with st.form("birth_weight_prediction_form"):
+        gravidity_input = st.number_input(
+            "Gravidity (number of pregnancies)",
+            min_value=min_gravidity,
+            max_value=max_gravidity,
+            value=min_gravidity,
+            step=1
+        )
+
+        babies_input = st.number_input(
+            "Babies born (recorded previous births)",
+            min_value=min_babies,
+            max_value=max_babies,
+            value=min_babies,
+            step=1
+        )
+
+        predict_clicked = st.form_submit_button("Predict")
+
+    if predict_clicked:
+        input_data = pd.DataFrame({
+            "Gravidae": [gravidity_input],
+            "Babies born": [babies_input]
+        })
+
+        predicted_weight = birth_weight_model.predict(input_data)[0]
+
+        st.subheader("Prediction result")
+        st.metric("Estimated birth weight", f"{predicted_weight:,.0f} g")
+
+        if logistic_model is not None:
+            predicted_class = logistic_model.predict(input_data)[0]
+
+            if predicted_class == 1:
+                st.write(
+                    "The experimental classifier flags this input as "
+                    "low birth weight (below 2,500 g)."
+                )
+            else:
+                st.write(
+                    "The experimental classifier flags this input as "
+                    "not low birth weight (2,500 g or above)."
+                )
+        else:
+            st.info("The classifier could not be trained on the available data.")
+
+        st.caption(
+            "These are experimental model outputs, not medical advice. "
+            "Actual birth weight must be measured, and clinical decisions "
+            "must be made by qualified health professionals."
+        )
