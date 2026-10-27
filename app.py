@@ -37,7 +37,7 @@ st.write(
 DATA_PATH = (
     Path(__file__).parent
     / "data"
-    / "Filtered maternity Register - Filtered maternity Register (1).csv"
+    / "processed_maternity_data.csv"
 )
 
 
