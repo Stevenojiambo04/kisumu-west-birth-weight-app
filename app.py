@@ -1,547 +1,663 @@
-
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import streamlit as st
+import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+    classification_report,
+    roc_auc_score,
+)
 
 # --------------------------------------------------
-# 1. PAGE CONFIGURATION
+# PAGE CONFIGURATION
 # --------------------------------------------------
 
 st.set_page_config(
     page_title="Kisumu West Birth Weight Analysis",
     page_icon="👶",
-    layout="wide"
+    layout="wide",
 )
 
-st.title("The Effect of Gravidity and Parity on Birth Weight of Infants")
-st.subheader("Kisumu West Sub-County, Kenya")
+st.title("The Effect of Gravidity and Parity on Birth Weight")
+st.subheader("Kisumu West Sub-County Maternity Data Analysis")
 
-st.write(
-    "This group capstone application explores the relationship between "
-    "gravidity, parity, and infant birth weight using maternity register data. "
-    "The findings describe available records and do not independently "
-    "establish causation."
+st.markdown(
+    """
+    This group capstone examines the relationship between gravidity,
+    parity and infant birth weight using the available maternity records.
+    The application provides descriptive analysis and machine-learning
+    predictions for educational and analytical purposes.
+    """
 )
-
 
 # --------------------------------------------------
-# 2. LOAD DATA
+# LOAD THE PROCESSED DATASET
 # --------------------------------------------------
 
-DATA_PATH = (
-    Path(__file__).parent
-    / "data"
-    / "processed_maternity_data.csv"
-)
+BASE_DIR = Path(__file__).resolve().parent
 
+DATA_PATH = BASE_DIR / "data" / "processed_maternity_data.csv"
 
-@st.cache_data
-def load_data(path):
-    return pd.read_csv(path)
-
-
-if not DATA_PATH.exists():
+if not DATA_PATH.is_file():
     st.error(
-        "Dataset not found. Check that the maternity CSV file is "
-        "inside the data folder in this GitHub repository."
+        "Dataset not found. Expected file: "
+        "data/processed_maternity_data.csv"
+    )
+    st.info(
+        "Check that processed_maternity_data.csv is committed "
+        "inside the data folder of the connected GitHub repository."
     )
     st.stop()
 
 try:
-    df = load_data(str(DATA_PATH))
-except Exception as error:
-    st.error(f"The dataset could not be loaded: {error}")
+    df = pd.read_csv(DATA_PATH)
+except Exception as exc:
+    st.error(f"The dataset could not be read: {exc}")
     st.stop()
 
-if df.empty:
-    st.error("The dataset contains no records.")
-    st.stop()
-
-
 # --------------------------------------------------
-# 3. PREPARE AVAILABLE NUMERIC COLUMNS
+# VALIDATE AND PREPARE DATA
 # --------------------------------------------------
 
-numeric_columns = [
+required_columns = [
     "Gravidae",
     "Parity_First",
     "Parity_Second",
-    "Babies born",
     "Birth_weight",
-    "Birth weight 1",
-    "Birth weight 2",
-    "Birth weight 3"
 ]
 
-for column in numeric_columns:
-    if column in df.columns:
-        df[column] = pd.to_numeric(df[column], errors="coerce")
+missing_columns = [
+    col for col in required_columns if col not in df.columns
+]
 
-st.success("The maternity dataset was loaded successfully.")
-
-
-# --------------------------------------------------
-# 4. DATA FILTERS
-# --------------------------------------------------
-
-st.sidebar.header("Data filters")
-
-if "Facility Name (Kisumu West)" in df.columns:
-    facilities = sorted(
-        df["Facility Name (Kisumu West)"]
-        .dropna()
-        .astype(str)
-        .unique()
+if missing_columns:
+    st.error(
+        "The processed dataset is missing required columns: "
+        + ", ".join(missing_columns)
     )
-
-    selected_facilities = st.sidebar.multiselect(
-        "Select facility",
-        facilities,
-        default=facilities
+    st.info(
+        "Export df_filtered from the latest group notebook and "
+        "upload the resulting CSV to the repository's data folder."
     )
-
-    df = df[
-        df["Facility Name (Kisumu West)"]
-        .astype(str)
-        .isin(selected_facilities)
-    ]
-
-if df.empty:
-    st.warning("No records match the selected facility filters.")
     st.stop()
 
+for col in required_columns:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# --------------------------------------------------
-# 5. DATASET OVERVIEW
-# --------------------------------------------------
+df = df.replace([np.inf, -np.inf], np.nan)
+df = df.dropna(subset=required_columns).copy()
 
-st.header("1. Dataset Overview")
+if df.empty:
+    st.error("No usable records remain after data preparation.")
+    st.stop()
 
-col1, col2, col3 = st.columns(3)
+# Create the low-birth-weight target using the notebook threshold.
+df["Low_Birth_Weight"] = (
+    df["Birth_weight"] < 2500
+).astype(int)
 
-col1.metric("Records displayed", f"{len(df):,}")
-
-if "Gravidae" in df.columns:
-    col2.metric(
-        "Gravidity records",
-        f"{df['Gravidae'].notna().sum():,}"
-    )
-else:
-    col2.metric("Gravidity records", "Unavailable")
-
-weight_cols = [
-    column
-    for column in ["Birth weight 1", "Birth weight 2", "Birth weight 3"]
-    if column in df.columns
+FEATURES = [
+    "Gravidae",
+    "Parity_First",
+    "Parity_Second",
 ]
 
-if weight_cols:
-    weights = pd.to_numeric(
-        pd.Series(df[weight_cols].values.flatten()),
-        errors="coerce"
-    ).dropna()
-
-    col3.metric("Recorded infant weights", f"{len(weights):,}")
-else:
-    weights = pd.Series(dtype=float)
-    col3.metric("Recorded infant weights", "Unavailable")
-
-with st.expander("View dataset columns and sample records"):
-    st.write("Columns:", ", ".join(df.columns.astype(str)))
-    st.dataframe(df.head(20), use_container_width=True)
-
-with st.expander("View numerical summary"):
-    st.dataframe(
-        df.describe(include="all").transpose(),
-        use_container_width=True
-    )
-
-
 # --------------------------------------------------
-# 6. EXPLORATORY DATA ANALYSIS
+# TRAIN THE DECISION TREE REGRESSION MODEL
 # --------------------------------------------------
 
-st.header("2. Exploratory Data Analysis")
+X_reg = df[FEATURES]
+y_reg = df["Birth_weight"]
 
-if weight_cols and "Gravidae" in df.columns:
-
-    plot_df = df.copy()
-
-    plot_df["Gravidae"] = pd.to_numeric(
-        plot_df["Gravidae"],
-        errors="coerce"
+X_train_reg, X_test_reg, y_train_reg, y_test_reg = (
+    train_test_split(
+        X_reg,
+        y_reg,
+        test_size=0.2,
+        random_state=42,
     )
+)
 
-    for column in weight_cols:
-        plot_df[column] = pd.to_numeric(
-            plot_df[column],
-            errors="coerce"
-        )
+reg_model = DecisionTreeRegressor(
+    max_depth=4,
+    random_state=42,
+)
 
-    # Convert the recorded infant weight columns into one column
-    plot_df = plot_df.melt(
-        id_vars=["Gravidae"],
-        value_vars=weight_cols,
-        value_name="Birth_weight",
-        var_name="Baby_number"
-    )
+reg_model.fit(X_train_reg, y_train_reg)
 
-    plot_df["Birth_weight"] = pd.to_numeric(
-        plot_df["Birth_weight"],
-        errors="coerce"
-    )
+reg_predictions = reg_model.predict(X_test_reg)
 
-    plot_df = plot_df.dropna(
-        subset=["Gravidae", "Birth_weight"]
-    )
+mae = mean_absolute_error(y_test_reg, reg_predictions)
+rmse = np.sqrt(
+    mean_squared_error(y_test_reg, reg_predictions)
+)
+r2 = r2_score(y_test_reg, reg_predictions)
 
-    plot_df = plot_df[plot_df["Birth_weight"] > 0]
+# --------------------------------------------------
+# TRAIN LOGISTIC REGRESSION CLASSIFIER
+# --------------------------------------------------
 
-    # Birth-weight distribution
-    if not plot_df.empty:
-        fig, ax = plt.subplots()
+classification_df = df[
+    FEATURES + ["Low_Birth_Weight"]
+].dropna().copy()
 
-        ax.hist(
-            plot_df["Birth_weight"],
-            bins=25,
-            edgecolor="black"
-        )
+class_counts = classification_df["Low_Birth_Weight"].value_counts()
 
-        ax.set_title("Distribution of Infant Birth Weight")
-        ax.set_xlabel("Birth weight (grams)")
-        ax.set_ylabel("Number of recorded infants")
+classifier = None
+classification_results = None
+classification_error = None
 
-        st.pyplot(fig)
-        plt.close(fig)
+# Stratified train/test splitting requires at least two
+# records in each class and enough records for both splits.
+if len(class_counts) == 2 and class_counts.min() >= 2:
+    X_cls = classification_df[FEATURES]
+    y_cls = classification_df["Low_Birth_Weight"]
 
-        # Gravidity versus birth weight
-        fig, ax = plt.subplots()
-
-        ax.scatter(
-            plot_df["Gravidae"],
-            plot_df["Birth_weight"],
-            alpha=0.5
-        )
-
-        ax.set_title("Gravidity and Birth Weight")
-        ax.set_xlabel("Gravidae (number of pregnancies)")
-        ax.set_ylabel("Birth weight (grams)")
-
-        st.pyplot(fig)
-        plt.close(fig)
-
-    # Babies born versus birth weight, if available
-    if "Babies born" in df.columns:
-        babies_df = df.copy()
-
-        babies_df["Babies born"] = pd.to_numeric(
-            babies_df["Babies born"],
-            errors="coerce"
-        )
-
-        babies_df["Birth_weight"] = babies_df[weight_cols].mean(axis=1)
-
-        babies_df = babies_df.dropna(
-            subset=["Babies born", "Birth_weight"]
-        )
-
-        if not babies_df.empty:
-            fig, ax = plt.subplots()
-
-            ax.scatter(
-                babies_df["Babies born"],
-                babies_df["Birth_weight"],
-                alpha=0.5
+    try:
+        X_train_cls, X_test_cls, y_train_cls, y_test_cls = (
+            train_test_split(
+                X_cls,
+                y_cls,
+                test_size=0.2,
+                random_state=42,
+                stratify=y_cls,
             )
+        )
 
-            ax.set_title("Babies Born and Birth Weight")
-            ax.set_xlabel("Babies born")
-            ax.set_ylabel("Average recorded birth weight (grams)")
+        classifier = make_pipeline(
+            StandardScaler(),
+            LogisticRegression(max_iter=1000),
+        )
 
-            st.pyplot(fig)
-            plt.close(fig)
+        classifier.fit(X_train_cls, y_train_cls)
 
+        cls_predictions = classifier.predict(X_test_cls)
+        cls_probabilities = classifier.predict_proba(
+            X_test_cls
+        )[:, 1]
+
+        classification_results = {
+            "accuracy": accuracy_score(
+                y_test_cls, cls_predictions
+            ),
+            "precision": precision_score(
+                y_test_cls,
+                cls_predictions,
+                zero_division=0,
+            ),
+            "recall": recall_score(
+                y_test_cls,
+                cls_predictions,
+                zero_division=0,
+            ),
+            "f1": f1_score(
+                y_test_cls,
+                cls_predictions,
+                zero_division=0,
+            ),
+            "confusion_matrix": confusion_matrix(
+                y_test_cls, cls_predictions
+            ),
+            "report": classification_report(
+                y_test_cls,
+                cls_predictions,
+                target_names=[
+                    "Not Low Birth Weight",
+                    "Low Birth Weight",
+                ],
+                zero_division=0,
+                output_dict=True,
+            ),
+            "roc_auc": (
+                roc_auc_score(y_test_cls, cls_probabilities)
+                if y_test_cls.nunique() == 2
+                else None
+            ),
+        }
+
+    except ValueError as exc:
+        classification_error = str(exc)
 else:
-    st.warning(
-        "The expected gravidity or birth-weight columns were not found. "
-        "Check the CSV column names."
+    classification_error = (
+        "The dataset does not contain enough examples "
+        "from both birth-weight classes to train the classifier."
     )
-
 
 # --------------------------------------------------
-# 7. BIRTH-WEIGHT SUMMARY
+# SIDEBAR
 # --------------------------------------------------
 
-st.header("3. Birth Weight Summary")
+st.sidebar.title("Navigation")
 
-if not weights.empty:
-    st.dataframe(
-        weights.describe().to_frame("Birth weight summary"),
-        use_container_width=True
+page = st.sidebar.radio(
+    "Select a section",
+    [
+        "Overview",
+        "Data Analysis",
+        "Birth Weight Prediction",
+        "Low Birth Weight Classification",
+        "Model Evaluation",
+    ],
+)
+
+st.sidebar.caption(
+    "Kisumu West Sub-County group capstone project"
+)
+
+# --------------------------------------------------
+# OVERVIEW
+# --------------------------------------------------
+
+if page == "Overview":
+    st.header("Project Overview")
+
+    total_records = len(df)
+    low_weight_count = int(df["Low_Birth_Weight"].sum())
+    low_weight_rate = (
+        low_weight_count / total_records * 100
     )
 
-    valid_weights = weights[weights > 0]
-    low_count = int((valid_weights < 2500).sum())
-    normal_count = int((valid_weights >= 2500).sum())
-    total_count = low_count + normal_count
+    col1, col2, col3 = st.columns(3)
 
-    a, b, c = st.columns(3)
-
-    a.metric("Low birth weight (<2500 g)", f"{low_count:,}")
-    b.metric("2500 g or above", f"{normal_count:,}")
-
-    c.metric(
-        "Low birth-weight percentage",
-        f"{100 * low_count / total_count:.2f}%"
-        if total_count else "Unavailable"
+    col1.metric("Usable Infant Records", f"{total_records:,}")
+    col2.metric(
+        "Average Birth Weight",
+        f"{df['Birth_weight'].mean():,.1f} g",
+    )
+    col3.metric(
+        "Low Birth Weight",
+        f"{low_weight_rate:.2f}%",
     )
 
-    fig, ax = plt.subplots()
+    st.markdown("### Dataset preview")
+    st.dataframe(df.head(10), use_container_width=True)
 
-    ax.bar(
-        ["Low birth weight", "2500 g or above"],
-        [low_count, normal_count]
+    st.markdown("### Variables used by the models")
+
+    st.write(
+        "- **Gravidae:** number of pregnancies recorded."
+    )
+    st.write(
+        "- **Parity_First:** first numeric component extracted "
+        "from the notebook's Parity field."
+    )
+    st.write(
+        "- **Parity_Second:** second numeric component extracted "
+        "from the notebook's Parity field."
+    )
+    st.write(
+        "- **Birth_weight:** infant birth weight in grams."
     )
 
-    ax.set_title("Low Birth Weight Classification")
-    ax.set_ylabel("Number of recorded infants")
+    st.caption(
+        "Parity_First and Parity_Second retain the meanings "
+        "of the two components as encoded in the source dataset."
+    )
 
+# --------------------------------------------------
+# DATA ANALYSIS
+# --------------------------------------------------
+
+elif page == "Data Analysis":
+    st.header("Exploratory Data Analysis")
+
+    st.markdown("### Birth weight distribution")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.hist(
+        df["Birth_weight"],
+        bins=30,
+        edgecolor="black",
+    )
+    ax.set_xlabel("Birth Weight (grams)")
+    ax.set_ylabel("Number of Infants")
+    ax.set_title("Distribution of Infant Birth Weight")
     st.pyplot(fig)
     plt.close(fig)
 
-st.caption(
-    "Birth weight below 2,500 grams is classified as low birth weight. "
-    "These summaries describe the available records."
-)
+    st.markdown("### Gravidity and birth weight")
 
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.scatter(
+        df["Gravidae"],
+        df["Birth_weight"],
+        alpha=0.5,
+    )
+    ax.set_xlabel("Gravidae")
+    ax.set_ylabel("Birth Weight (grams)")
+    ax.set_title("Gravidity and Birth Weight")
+    st.pyplot(fig)
+    plt.close(fig)
 
-# --------------------------------------------------
-# 8. MODEL EVALUATION INFORMATION
-# --------------------------------------------------
+    st.markdown("### Parity components and birth weight")
 
-st.header("4. Model Evaluation Information")
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.scatter(
+        df["Parity_First"],
+        df["Birth_weight"],
+        alpha=0.5,
+    )
+    ax.set_xlabel("Parity_First")
+    ax.set_ylabel("Birth Weight (grams)")
+    ax.set_title("Parity_First and Birth Weight")
+    st.pyplot(fig)
+    plt.close(fig)
 
-st.subheader("Decision Tree Regression")
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.scatter(
+        df["Parity_Second"],
+        df["Birth_weight"],
+        alpha=0.5,
+    )
+    ax.set_xlabel("Parity_Second")
+    ax.set_ylabel("Birth Weight (grams)")
+    ax.set_title("Parity_Second and Birth Weight")
+    st.pyplot(fig)
+    plt.close(fig)
 
-st.write(
-    "The group's earlier regression analysis reported the following "
-    "evaluation results. These figures are reported results, not a "
-    "guarantee of performance on every dataset or new input."
-)
+    st.markdown("### Birth weight category")
 
-m1, m2, m3 = st.columns(3)
-
-m1.metric("MAE", "339.53 g")
-m2.metric("RMSE", "431.62 g")
-m3.metric("R² Score", "0.0621")
-
-st.caption(
-    "The R² score indicates that the model explained only a small "
-    "proportion of the variation in birth weight in that evaluation."
-)
-
-st.subheader("Logistic Regression")
-
-st.write(
-    "The group's earlier low-birth-weight classification analysis "
-    "reported these evaluation results."
-)
-
-l1, l2, l3, l4 = st.columns(4)
-
-l1.metric("Accuracy", "67.17%")
-l2.metric("Precision", "9.19%")
-l3.metric("Recall", "60.34%")
-l4.metric("F1 Score", "15.95%")
-
-st.caption(
-    "The classification results have limitations and must not be "
-    "used to make clinical decisions."
-)
-
-
-# --------------------------------------------------
-# 9. LIVE BIRTH-WEIGHT PREDICTION
-# --------------------------------------------------
-
-st.header("5. Birth Weight Prediction")
-
-st.write(
-    "This section trains a Decision Tree regression model from the "
-    "available dataset and accepts the three predictor values used "
-    "in the latest group notebook."
-)
-
-st.warning(
-    "For academic demonstration only. Predictions are estimates, "
-    "not medical advice or a substitute for clinical assessment."
-)
-
-regression_features = [
-    "Gravidae",
-    "Parity_First",
-    "Parity_Second"
-]
-
-missing_features = [
-    column
-    for column in regression_features
-    if column not in df.columns
-]
-
-if missing_features:
-    st.error(
-        "Live prediction is unavailable because the dataset is missing "
-        "these notebook predictors: "
-        + ", ".join(missing_features)
-        + ". Export the correct processed dataset from the latest "
-        "group notebook and place it in the data folder. The dashboard "
-        "and charts above can still be viewed."
+    category_counts = (
+        df["Low_Birth_Weight"]
+        .value_counts()
+        .reindex([0, 1], fill_value=0)
     )
 
-elif not weight_cols:
-    st.warning(
-        "Live prediction requires at least one birth-weight column."
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(
+        ["Not Low Birth Weight", "Low Birth Weight"],
+        category_counts.values,
+    )
+    ax.set_ylabel("Number of Infants")
+    ax.set_title("Low and Normal Birth Weight Categories")
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.markdown("### Correlation matrix")
+
+    corr = df[
+        FEATURES + ["Birth_weight"]
+    ].corr(numeric_only=True)
+
+    st.dataframe(
+        corr.round(3),
+        use_container_width=True,
     )
 
-else:
-    # Prepare the data using the three notebook predictors
-    model_data = df[regression_features + weight_cols].copy()
+# --------------------------------------------------
+# BIRTH WEIGHT PREDICTION
+# --------------------------------------------------
 
-    for column in regression_features + weight_cols:
-        model_data[column] = pd.to_numeric(
-            model_data[column],
-            errors="coerce"
+elif page == "Birth Weight Prediction":
+    st.header("Predict Infant Birth Weight")
+
+    st.write(
+        "Enter the three predictor values used by the "
+        "Decision Tree model in the group notebook."
+    )
+
+    with st.form("birth_weight_form"):
+        gravidae = st.number_input(
+            "Gravidae",
+            min_value=0,
+            max_value=30,
+            value=2,
+            step=1,
         )
 
-    # Convert the available birth-weight columns to long format
-    model_data = model_data.melt(
-        id_vars=regression_features,
-        value_vars=weight_cols,
-        value_name="Birth_weight",
-        var_name="Baby_number"
+        parity_first = st.number_input(
+            "Parity_First",
+            min_value=0,
+            max_value=30,
+            value=1,
+            step=1,
+        )
+
+        parity_second = st.number_input(
+            "Parity_Second",
+            min_value=0,
+            max_value=30,
+            value=0,
+            step=1,
+        )
+
+        submitted = st.form_submit_button(
+            "Predict Birth Weight"
+        )
+
+    if submitted:
+        input_data = pd.DataFrame(
+            [[gravidae, parity_first, parity_second]],
+            columns=FEATURES,
+        )
+
+        predicted_weight = float(
+            reg_model.predict(input_data)[0]
+        )
+
+        st.success(
+            f"Predicted birth weight: "
+            f"{predicted_weight:,.1f} grams"
+        )
+
+        if predicted_weight < 2500:
+            st.warning(
+                "The prediction is below 2,500 grams, "
+                "the low-birth-weight threshold used in this project."
+            )
+        else:
+            st.info(
+                "The prediction is at least 2,500 grams, "
+                "the threshold used in this project."
+            )
+
+        st.caption(
+            "This is a model estimate, not a clinical assessment. "
+            "It must not be used on its own to make medical decisions."
+        )
+
+# --------------------------------------------------
+# LOW BIRTH WEIGHT CLASSIFICATION
+# --------------------------------------------------
+
+elif page == "Low Birth Weight Classification":
+    st.header("Classify Low Birth Weight")
+
+    st.write(
+        "Logistic Regression estimates whether the infant's "
+        "birth weight falls below 2,500 grams."
     )
 
-    model_data["Birth_weight"] = pd.to_numeric(
-        model_data["Birth_weight"],
-        errors="coerce"
-    )
-
-    model_data = model_data.dropna(
-        subset=regression_features + ["Birth_weight"]
-    )
-
-    model_data = model_data[model_data["Birth_weight"] > 0]
-
-    if len(model_data) < 20:
+    if classifier is None:
         st.warning(
-            "There are not enough complete records to train the "
-            "prediction model."
+            "Classification is unavailable: "
+            + str(classification_error)
         )
-
     else:
-        X = model_data[regression_features]
-        y = model_data["Birth_weight"]
+        with st.form("low_weight_form"):
+            gravidae_cls = st.number_input(
+                "Gravidae",
+                min_value=0,
+                max_value=30,
+                value=2,
+                step=1,
+                key="gravidae_cls",
+            )
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X,
-            y,
-            test_size=0.2,
-            random_state=42
-        )
-
-        reg_model = DecisionTreeRegressor(
-            max_depth=4,
-            random_state=42
-        )
-
-        reg_model.fit(X_train, y_train)
-
-        # Display evaluation on this app's available data
-        test_predictions = reg_model.predict(X_test)
-
-        e1, e2, e3 = st.columns(3)
-
-        e1.metric(
-            "App MAE",
-            f"{mean_absolute_error(y_test, test_predictions):.2f} g"
-        )
-
-        e2.metric(
-            "App RMSE",
-            f"{mean_squared_error(y_test, test_predictions) ** 0.5:.2f} g"
-        )
-
-        e3.metric(
-            "App R²",
-            f"{r2_score(y_test, test_predictions):.4f}"
-        )
-
-        st.subheader("Enter the prediction values")
-
-        with st.form("birth_weight_form"):
-
-            gravidae = st.number_input(
-                "Gravidae (number of pregnancies)",
+            parity_first_cls = st.number_input(
+                "Parity_First",
                 min_value=0,
                 max_value=30,
                 value=1,
-                step=1
+                step=1,
+                key="parity_first_cls",
             )
 
-            parity_first = st.number_input(
-                "Parity first value",
+            parity_second_cls = st.number_input(
+                "Parity_Second",
                 min_value=0,
                 max_value=30,
                 value=0,
-                step=1
+                step=1,
+                key="parity_second_cls",
             )
 
-            parity_second = st.number_input(
-                "Parity second value",
-                min_value=0,
-                max_value=30,
-                value=0,
-                step=1
+            classify = st.form_submit_button(
+                "Classify Birth Weight"
             )
 
-            submitted = st.form_submit_button(
-                "Estimate birth weight"
+        if classify:
+            input_data = pd.DataFrame(
+                [[
+                    gravidae_cls,
+                    parity_first_cls,
+                    parity_second_cls,
+                ]],
+                columns=FEATURES,
             )
 
-        if submitted:
-            input_data = pd.DataFrame([{
-                "Gravidae": gravidae,
-                "Parity_First": parity_first,
-                "Parity_Second": parity_second
-            }])
+            probability = float(
+                classifier.predict_proba(input_data)[0, 1]
+            )
 
-            prediction = reg_model.predict(input_data)[0]
+            predicted_class = int(
+                classifier.predict(input_data)[0]
+            )
 
             st.metric(
-                "Estimated birth weight",
-                f"{prediction:,.0f} grams"
+                "Estimated probability of low birth weight",
+                f"{probability:.1%}",
             )
+
+            if predicted_class == 1:
+                st.warning(
+                    "Model classification: Low Birth Weight "
+                    "(below 2,500 grams)."
+                )
+            else:
+                st.success(
+                    "Model classification: Not Low Birth Weight "
+                    "(2,500 grams or above)."
+                )
 
             st.caption(
-                "This is an experimental model estimate. Actual infant "
-                "birth weight must be measured, and clinical decisions "
-                "must be made by qualified health professionals."
+                "This classification is a statistical estimate, "
+                "not a diagnosis or a substitute for clinical care."
             )
 
+# --------------------------------------------------
+# MODEL EVALUATION
+# --------------------------------------------------
+
+elif page == "Model Evaluation":
+    st.header("Model Evaluation")
+
+    st.subheader("Decision Tree Regression")
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric("MAE", f"{mae:,.2f} g")
+    c2.metric("RMSE", f"{rmse:,.2f} g")
+    c3.metric("R² Score", f"{r2:.4f}")
+
+    st.write(
+        "MAE and RMSE measure prediction error in grams. "
+        "R² indicates how much variation is explained by the model "
+        "on the held-out test data."
+    )
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.scatter(
+        y_test_reg,
+        reg_predictions,
+        alpha=0.6,
+    )
+
+    low = min(
+        float(y_test_reg.min()),
+        float(reg_predictions.min()),
+    )
+    high = max(
+        float(y_test_reg.max()),
+        float(reg_predictions.max()),
+    )
+
+    ax.plot([low, high], [low, high], linestyle="--")
+    ax.set_xlabel("Actual Birth Weight (grams)")
+    ax.set_ylabel("Predicted Birth Weight (grams)")
+    ax.set_title("Actual vs Predicted Birth Weight")
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.subheader("Logistic Regression Classification")
+
+    if classification_results is None:
+        st.warning(
+            "Classification evaluation is unavailable: "
+            + str(classification_error)
+        )
+    else:
+        result = classification_results
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric("Accuracy", f"{result['accuracy']:.1%}")
+        c2.metric("Precision", f"{result['precision']:.1%}")
+        c3.metric("Recall", f"{result['recall']:.1%}")
+        c4.metric("F1 Score", f"{result['f1']:.3f}")
+
+        if result["roc_auc"] is not None:
+            st.metric("ROC-AUC", f"{result['roc_auc']:.3f}")
+
+        st.write("Confusion matrix:")
+        st.dataframe(
+            pd.DataFrame(
+                result["confusion_matrix"],
+                index=[
+                    "Actual: Not Low",
+                    "Actual: Low",
+                ],
+                columns=[
+                    "Predicted: Not Low",
+                    "Predicted: Low",
+                ],
+            ),
+            use_container_width=True,
+        )
+
+        st.write("Classification report:")
+        st.dataframe(
+            pd.DataFrame(result["report"]).T.round(3),
+            use_container_width=True,
+        )
 
 # --------------------------------------------------
-# 10. FOOTER
+# FOOTER
 # --------------------------------------------------
 
 st.divider()
 
 st.caption(
-    "Group capstone project | TICH School of Data Science and Analytics | 2026"
+    "Group Capstone Project | Diploma in Data Science and Analytics | "
+    "Tropical Institute of Community Health and Development (TICH)"
+)
+
+st.caption(
+    "Findings describe the available maternity records and "
+    "do not independently establish causation."
 )
